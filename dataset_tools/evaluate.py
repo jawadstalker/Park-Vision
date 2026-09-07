@@ -4,7 +4,9 @@ import os
 import time
 
 import cv2
-from ultralytics import YOLO
+from ultralytics import YOLO, settings
+
+settings.update({"wandb": False})
 
 PRECISION_THRESHOLD = 0.85
 RECALL_THRESHOLD = 0.80

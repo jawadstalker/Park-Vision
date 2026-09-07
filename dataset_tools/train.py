@@ -1,6 +1,8 @@
 import argparse
 
-from ultralytics import YOLO
+from ultralytics import YOLO, settings
+
+settings.update({"wandb": False})
 
 
 def main():
