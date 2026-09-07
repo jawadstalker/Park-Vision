@@ -1,5 +1,6 @@
 import argparse
 import os
+import random
 import shutil
 
 import yaml
@@ -79,6 +80,13 @@ def main():
         "so organize_dataset.py's per-street train/val/test split doesn't dump the whole external "
         "dataset into a single bucket (default: 20).",
     )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Randomly sample at most this many images from the source dataset (default: use all).",
+    )
+    parser.add_argument("--seed", type=int, default=42, help="Random seed used for --limit sampling.")
     args = parser.parse_args()
 
     class_names = load_class_names(args.source_dir)
@@ -95,11 +103,7 @@ def main():
             "(expected train/valid/test/images+labels, or a flat images/labels)."
         )
 
-    os.makedirs(args.output_images_dir, exist_ok=True)
-    os.makedirs(args.output_labels_dir, exist_ok=True)
-
-    index = 0
-    total_boxes = 0
+    pairs = []
     for images_dir, labels_dir in splits:
         for name in sorted(os.listdir(images_dir)):
             stem, ext = os.path.splitext(name)
@@ -108,23 +112,32 @@ def main():
             label_path = os.path.join(labels_dir, stem + ".txt")
             if not os.path.exists(label_path):
                 continue
+            pairs.append((os.path.join(images_dir, name), label_path, ext))
 
-            chunk_number = (index % args.chunks) + 1
-            new_stem = f"{args.source_name}{chunk_number}_{args.lighting}_{index:05d}"
-            shutil.copy2(
-                os.path.join(images_dir, name),
-                os.path.join(args.output_images_dir, new_stem + ext),
-            )
-            kept = remap_label_file(
-                label_path,
-                os.path.join(args.output_labels_dir, new_stem + ".txt"),
-                keep_index,
-            )
-            total_boxes += kept
-            index += 1
+    if not pairs:
+        raise SystemExit("No matching image/label pairs found under source_dir.")
+
+    if args.limit is not None and args.limit < len(pairs):
+        random.seed(args.seed)
+        pairs = random.sample(pairs, args.limit)
+
+    os.makedirs(args.output_images_dir, exist_ok=True)
+    os.makedirs(args.output_labels_dir, exist_ok=True)
+
+    total_boxes = 0
+    for index, (image_path, label_path, ext) in enumerate(pairs):
+        chunk_number = (index % args.chunks) + 1
+        new_stem = f"{args.source_name}{chunk_number}_{args.lighting}_{index:05d}"
+        shutil.copy2(image_path, os.path.join(args.output_images_dir, new_stem + ext))
+        kept = remap_label_file(
+            label_path,
+            os.path.join(args.output_labels_dir, new_stem + ".txt"),
+            keep_index,
+        )
+        total_boxes += kept
 
     print(
-        f"Prepared {index} images ({total_boxes} '{args.keep_class}' boxes kept) -> "
+        f"Prepared {len(pairs)} images ({total_boxes} '{args.keep_class}' boxes kept) -> "
         f"{args.output_images_dir} / {args.output_labels_dir}"
     )
 

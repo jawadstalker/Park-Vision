@@ -1,158 +1,166 @@
-# Park-Vision — سامانه هوشمند تشخیص جای پارک خالی
+# Park-Vision — Smart On-Street Parking Detection
 
-سامانه‌ای که با تحلیل تصاویر دوربین‌های ثابت خیابانی، وضعیت اشغال یا خالی
-بودن جای‌های پارک حاشیه‌ای را به‌صورت خودکار تشخیص می‌دهد. برخلاف اکثر
-پروژه‌های مشابه که برای پارکینگ‌های بالانگر با خط‌کشی ثابت طراحی شده‌اند،
-این سامانه برای **پارک حاشیه‌ای خیابانی** (دوربین با زاویه مایل، بدون
-خط‌کشی از پیش مشخص) ساخته شده و از الگوریتم **Gap Detection** برای اندازه‌گیری
-فاصله واقعی (متر) بین خودروهای متوالی استفاده می‌کند.
+A system that analyzes fixed street-camera footage to automatically detect
+whether roadside parking spots are occupied or empty. Unlike most similar
+projects, which target overhead parking lots with fixed painted stalls, this
+system is built for **on-street parking** (camera at an oblique angle, no
+pre-marked stalls) and uses a **Gap Detection** algorithm to measure the
+real-world distance (in meters) between consecutive parked vehicles.
 
-## معماری
+## Architecture
 
 ```
-تصویر/ویدیوی دوربین
+Camera image / video
         │
         ▼
-YOLOv8 (تشخیص خودرو)
+YOLOv8 (vehicle detection)
         │
         ▼
-SORT (ردیابی خودرو بین فریم‌ها، فقط برای ویدیو)
+SORT (multi-frame vehicle tracking, video only)
         │
         ▼
-تبدیل پرسپکتیو (پیکسل → متر واقعی، بر اساس کالیبراسیون هر دوربین)
+Perspective transform (pixels → real-world meters, per-camera calibration)
         │
         ▼
-Gap Detection (فاصله بین خودروها → جای خالی/اشغال)
+Gap Detection (distance between vehicles → empty/occupied spot)
         │
         ▼
 FastAPI (POST /detect, POST /calibrate, GET /status)
         │
-        ├──▶ Streamlit Dashboard (نمایش لحظه‌ای)
-        └──▶ ابزار کالیبراسیون کلیکی
+        ├──▶ Streamlit dashboard (live view)
+        └──▶ Click-based calibration tool
 ```
 
-## ساختار پروژه
+## Project structure
 
 ```
 Park-Vision/
 ├── app/
-│   ├── main.py             برنامه FastAPI
-│   ├── routes.py           سه endpoint: /detect, /calibrate, /status
-│   ├── schemas.py          مدل‌های Pydantic
-│   ├── calibration.py      ذخیره/بارگذاری homography هر دوربین
-│   ├── perspective.py      تبدیل پیکسل به مختصات واقعی
-│   ├── vehicle_detector.py پوشش YOLOv8
-│   ├── tracker.py           الگوریتم SORT برای ردیابی خودرو در ویدیو
-│   ├── gap_detector.py     هسته اصلی: الگوریتم Gap Detection
-│   └── visualization.py    توابع رسم برای داشبورد
-├── streamlit_app.py         داشبورد نمایش لحظه‌ای (تصویر/ویدیو)
-├── calibrate_tool.py         ابزار کلیکی انتخاب نقاط کالیبراسیون
-├── process_video.py          CLI برای پردازش آفلاین یک ویدیوی ضبط‌شده
-├── dataset_tools/             ابزارهای آماده‌سازی دیتاست و فاین‌تیون
+│   ├── main.py             FastAPI application
+│   ├── routes.py           Three endpoints: /detect, /calibrate, /status
+│   ├── schemas.py          Pydantic models
+│   ├── calibration.py      Save/load per-camera homography
+│   ├── perspective.py      Pixel-to-real-world coordinate transform
+│   ├── vehicle_detector.py YOLOv8 wrapper
+│   ├── tracker.py          SORT algorithm for video vehicle tracking
+│   ├── gap_detector.py     Core Gap Detection algorithm
+│   └── visualization.py    Drawing helpers for the dashboard
+├── streamlit_app.py         Live dashboard (image/video)
+├── calibrate_tool.py         Click-based calibration point picker
+├── process_video.py          CLI for offline processing of a recorded video
+├── dataset_tools/             Dataset preparation and fine-tuning tools
 │   ├── extract_frames.py
 │   ├── organize_dataset.py
 │   ├── dataset_stats.py
 │   ├── train.py
-│   └── evaluate.py
-├── tests/                     ۳۵ تست pytest برای تمام ماژول‌های بالا
+│   ├── evaluate.py
+│   └── prepare_external_dataset.py
+├── colab/                      Google Colab notebook for fine-tuning
+│   └── park_vision_roadside_parking_finetune.ipynb
+├── tests/                     35 pytest tests covering the modules above
 ├── requirements.txt
 ├── requirements-dev.txt
 ├── Dockerfile
 └── docker-compose.yml
 ```
 
-## نصب و اجرا (بدون Docker)
+## Setup and usage (without Docker)
 
 ```bash
 pip install -r requirements.txt
 ```
 
-**۱. کالیبراسیون دوربین** (یک‌بار به‌ازای هر دوربین، قبل از هر کار دیگه‌ای):
+**1. Calibrate a camera** (once per camera, before anything else):
 
 ```bash
 streamlit run calibrate_tool.py
 ```
-عکس رفرنس دوربین را آپلود کنید، ۴ نقطه با مختصات واقعی متری وارد کنید،
-پیش‌نمایش نمای بالا را بررسی و ذخیره کنید.
+Upload a reference image from the camera, click 4 points and enter their
+real-world coordinates in meters, check the bird's-eye preview, and save.
 
-**۲. اجرای API:**
+**2. Run the API:**
 
 ```bash
 uvicorn app.main:app --reload
 ```
-مستندات تعاملی: `http://localhost:8000/docs`
+Interactive docs: `http://localhost:8000/docs`
 
-> اولین بار که سرور بالا می‌آید، دانلود و بارگذاری اولیه‌ی PyTorch/YOLO
-> ممکن است حدود ۶۰ ثانیه طول بکشد — طبیعی است.
+> The first time the server starts, loading PyTorch/YOLO can take about
+> 60 seconds — this is expected.
 
-**۳. داشبورد لحظه‌ای:**
+**3. Live dashboard:**
 
 ```bash
 streamlit run streamlit_app.py
 ```
 
-**۴. پردازش آفلاین یک ویدیوی ضبط‌شده:**
+**4. Offline processing of a recorded video:**
 
 ```bash
 python process_video.py street_footage.mp4 street-01 results.jsonl
 ```
 
-## اجرا با Docker
+## Running with Docker
 
 ```bash
 docker compose up --build
 ```
 
-سه سرویس بالا می‌آید:
+This starts three services:
 
-| سرویس | آدرس | توضیح |
+| Service | Address | Description |
 |---|---|---|
 | `api` | `http://localhost:8000` | FastAPI |
-| `dashboard` | `http://localhost:8501` | داشبورد لحظه‌ای |
-| `calibrate` | `http://localhost:8502` | ابزار کالیبراسیون |
+| `dashboard` | `http://localhost:8501` | Live dashboard |
+| `calibrate` | `http://localhost:8502` | Calibration tool |
 
-هر سه سرویس یک `volume` مشترک (`calibrations`) دارند، پس کالیبراسیونی
-که در سرویس `calibrate` ذخیره می‌کنید، بلافاصله در `api` و `dashboard`
-هم در دسترس است.
+All three services share a `calibrations` volume, so a calibration saved
+from the `calibrate` service is immediately available to `api` and
+`dashboard` as well.
 
-## آماده‌سازی دیتاست و فاین‌تیون
+## Dataset preparation and fine-tuning
 
-جزئیات کامل در [`dataset_tools/README.md`](dataset_tools/README.md).
-خلاصه جریان کار:
+Full details in [`dataset_tools/README.md`](dataset_tools/README.md).
+Summary workflow:
 
 ```bash
 python dataset_tools/extract_frames.py video.mp4 raw_frames/ --street azadi --lighting day
-# برچسب‌گذاری با LabelImg یا Roboflow
+# label with LabelImg or Roboflow
 python dataset_tools/dataset_stats.py raw_frames/
 python dataset_tools/organize_dataset.py raw_frames/ raw_labels/ dataset/
 python dataset_tools/train.py dataset/data.yaml
 python dataset_tools/evaluate.py runs/detect/street_parking/weights/best.pt dataset/data.yaml
 ```
 
-## تست‌ها
+No street footage yet? [`colab/park_vision_roadside_parking_finetune.ipynb`](colab/park_vision_roadside_parking_finetune.ipynb)
+downloads a public street-level dataset from Roboflow and runs the whole
+pipeline end to end on Google Colab.
+
+## Tests
 
 ```bash
 pip install -r requirements-dev.txt
 pytest tests/ -v
 ```
 
-۳۵ تست، شامل تست واحد الگوریتم Gap Detection، ردیابی SORT، کالیبراسیون،
-و تست یکپارچه API با `TestClient`.
+35 tests, including unit tests for the Gap Detection algorithm, the SORT
+tracker, calibration, and an integration test of the API via `TestClient`.
 
-## معیارهای پذیرش سند فنی
+## Acceptance criteria (from the feasibility document)
 
-| معیار | آستانه | ابزار سنجش |
+| Criterion | Threshold | Measured by |
 |---|---|---|
-| Precision تشخیص خودرو | ≥ ۸۵٪ | `dataset_tools/evaluate.py` |
-| Recall تشخیص خودرو | ≥ ۸۰٪ | `dataset_tools/evaluate.py` |
-| mAP@0.5 | ≥ ۸۰٪ | `dataset_tools/evaluate.py` |
-| زمان پردازش هر فریم (CPU، بدون GPU) | < ۳ ثانیه | `dataset_tools/evaluate.py` |
-| دقت تشخیص اشغال/خالی (نور روز) | ≥ ۹۰٪ | نیازمند تست میدانی با داده واقعی |
-| دقت تشخیص اشغال/خالی (نور غروب/سایه) | ≥ ۸۰٪ | نیازمند تست میدانی با داده واقعی |
+| Vehicle detection precision | ≥ 85% | `dataset_tools/evaluate.py` |
+| Vehicle detection recall | ≥ 80% | `dataset_tools/evaluate.py` |
+| mAP@0.5 | ≥ 80% | `dataset_tools/evaluate.py` |
+| Per-frame processing time (CPU, no GPU) | < 3 seconds | `dataset_tools/evaluate.py` |
+| Occupied/empty accuracy (daylight) | ≥ 90% | Requires field testing with real data |
+| Occupied/empty accuracy (dusk/shade) | ≥ 80% | Requires field testing with real data |
 
-## وضعیت فعلی پروژه
+## Current project status
 
-بخش کد و زیرساخت (API، ردیابی، پنل، ابزار کالیبراسیون، ابزارهای دیتاست،
-تست‌ها، Docker) کامل و تست‌شده است. مراحل باقی‌مانده — جمع‌آوری واقعی
-داده از خیابان‌های مشهد، فاین‌تیون روی داده واقعی، و تست نهایی میدانی —
-کار میدانی هستند و باید توسط تیم پروژه انجام شوند.
+The code and infrastructure (API, tracking, dashboard, calibration tool,
+dataset tools, tests, Docker) are complete and tested. The remaining
+steps — collecting real footage from Mashhad streets, fine-tuning on that
+real data, and the final field test — are field work that the project team
+needs to carry out.
