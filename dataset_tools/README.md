@@ -97,11 +97,12 @@ shot from street level rather than overhead. To use it:
    the zip (it will contain `train/`, `valid/`, `test/` folders each with
    `images/` and `labels/`, plus a `data.yaml`).
 2. Convert it into this project's naming convention, keeping only the `car`
-   class:
+   class (use `--limit` to randomly sample a smaller subset, e.g. for a
+   quick pipeline check before running on the full dataset):
 
    ```
    python prepare_external_dataset.py path/to/extracted_export raw_frames/ raw_labels/ \
-       --source-name roadsideparking --lighting day --keep-class car
+       --source-name roadsideparking --lighting day --keep-class car --limit 300
    ```
 
    This drops `motorcycle` annotations, remaps `car` to class id 0, and
