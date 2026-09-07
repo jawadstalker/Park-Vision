@@ -1,0 +1,34 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - calibrations:/srv/calibrations
+    environment:
+      - CALIBRATION_DIR=/srv/calibrations
+
+  dashboard:
+    build: .
+    command: ["streamlit", "run", "streamlit_app.py", "--server.address=0.0.0.0", "--server.port=8501"]
+    ports:
+      - "8501:8501"
+    volumes:
+      - calibrations:/srv/calibrations
+    environment:
+      - CALIBRATION_DIR=/srv/calibrations
+    depends_on:
+      - api
+
+  calibrate:
+    build: .
+    command: ["streamlit", "run", "calibrate_tool.py", "--server.address=0.0.0.0", "--server.port=8502"]
+    ports:
+      - "8502:8502"
+    volumes:
+      - calibrations:/srv/calibrations
+    environment:
+      - CALIBRATION_DIR=/srv/calibrations
+
+volumes:
+  calibrations:

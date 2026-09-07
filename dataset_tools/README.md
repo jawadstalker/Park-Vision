@@ -86,6 +86,39 @@ train/val streets, per the project's acceptance criteria.
    Checks Precision >= 85%, Recall >= 80%, mAP@0.5 >= 80%, and per-frame
    inference time < 3s on CPU, and prints PASS/FAIL for each.
 
+## Merging in an external dataset (e.g. a Roboflow export)
+
+The [Roadside Parking dataset on Roboflow Universe](https://universe.roboflow.com/3883zn-gmail-com/roadside-parking)
+(1,652 street-level images, `car`/`motorcycle` classes, CC BY 4.0) is a much
+closer match to this project's scenario than CNRPark-EXT/PKLot, since it's
+shot from street level rather than overhead. To use it:
+
+1. On the Roboflow page, export the dataset in **YOLOv8** format and extract
+   the zip (it will contain `train/`, `valid/`, `test/` folders each with
+   `images/` and `labels/`, plus a `data.yaml`).
+2. Convert it into this project's naming convention, keeping only the `car`
+   class:
+
+   ```
+   python prepare_external_dataset.py path/to/extracted_export raw_frames/ raw_labels/ \
+       --source-name roadsideparking --lighting day --keep-class car
+   ```
+
+   This drops `motorcycle` annotations, remaps `car` to class id 0, and
+   spreads the images across 20 pseudo-street tags (`roadsideparking1`,
+   `roadsideparking2`, ...) so `organize_dataset.py`'s per-street split
+   doesn't lump the entire external dataset into a single train-or-test
+   bucket.
+
+3. Continue with `dataset_stats.py` and `organize_dataset.py` as usual — the
+   converted images merge in alongside your own Mashhad footage.
+
+**Caveat:** the project's acceptance criteria call for test images from
+streets that are genuinely separate from training — that guarantee only
+matters for your own Mashhad street recordings. This external dataset is
+supplementary training/validation data, not a substitute for the real
+field test in the project's final testing phase.
+
 ## Merging in the public datasets (CNRPark-EXT / PKLot)
 
 These datasets are overhead parking-lot views, not street-side, so they help

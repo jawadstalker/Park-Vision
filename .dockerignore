@@ -1,0 +1,11 @@
+.git
+.gitignore
+__pycache__
+*.pyc
+.pytest_cache
+tests
+dataset_tools
+calibrations
+runs
+*.md
+requirements-dev.txt
