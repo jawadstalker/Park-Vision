@@ -5,6 +5,7 @@ import numpy as np
 from .perspective import bbox_bottom_edge, pixel_to_world
 
 DEFAULT_GAP_THRESHOLD_M = 4.5
+DEFAULT_SPOT_LENGTH_M = 5.0
 
 
 def vehicle_world_extent(matrix: np.ndarray, bbox: List[float]) -> tuple:
@@ -16,43 +17,42 @@ def vehicle_world_extent(matrix: np.ndarray, bbox: List[float]) -> tuple:
     return start, end
 
 
-def merge_overlapping_extents(extents: List[Dict], overlap_ratio: float = 0.4) -> List[Dict]:
-    """Collapse extents that overlap along the street axis into a single vehicle.
+def split_gap_into_spots(gap_start: float, gap_end: float, spot_length_m: float) -> List[Dict]:
+    gap_length = gap_end - gap_start
+    spot_count = max(1, int(gap_length // spot_length_m))
+    used_length = spot_length_m * spot_count
 
-    Two boxes on the same real car frequently survive YOLO's NMS as separate
-    detections (slightly different edges). If their 1D overlap covers more
-    than `overlap_ratio` of the shorter one, treat them as one vehicle and
-    keep the union span + the higher-confidence detection.
-    """
-    if not extents:
-        return extents
+    # Distribute any leftover space evenly as margin on both sides, so spots
+    # sit centered in the gap rather than flush against one edge.
+    margin = (gap_length - used_length) / 2.0
 
-    merged: List[Dict] = [extents[0]]
-    for current in extents[1:]:
-        last = merged[-1]
-        overlap = min(last["end"], current["end"]) - max(last["start"], current["start"])
-        shorter = min(last["end"] - last["start"], current["end"] - current["start"])
-        if shorter > 0 and overlap / shorter >= overlap_ratio:
-            last["start"] = min(last["start"], current["start"])
-            last["end"] = max(last["end"], current["end"])
-            if current["vehicle"]["confidence"] > last["vehicle"]["confidence"]:
-                last["vehicle"] = current["vehicle"]
-        else:
-            merged.append(current)
-    return merged
+    spots = []
+    for i in range(spot_count):
+        spot_start = gap_start + margin + i * spot_length_m
+        spot_end = spot_start + spot_length_m
+        spots.append(
+            {
+                "status": "empty",
+                "start_m": round(spot_start, 2),
+                "end_m": round(spot_end, 2),
+                "length_m": round(spot_end - spot_start, 2),
+                "vehicle": None,
+            }
+        )
+    return spots
 
 
 def detect_gaps(
     matrix: np.ndarray,
     vehicles: List[Dict],
     threshold_m: float = DEFAULT_GAP_THRESHOLD_M,
+    spot_length_m: float = DEFAULT_SPOT_LENGTH_M,
 ) -> List[Dict]:
     extents = []
     for vehicle in vehicles:
         start, end = vehicle_world_extent(matrix, vehicle["bbox"])
         extents.append({"vehicle": vehicle, "start": start, "end": end})
     extents.sort(key=lambda e: e["start"])
-    extents = merge_overlapping_extents(extents)
 
     spots: List[Dict] = []
 
@@ -72,15 +72,7 @@ def detect_gaps(
         gap_end = extents[i + 1]["start"]
         gap_length = gap_end - gap_start
         if gap_length >= threshold_m:
-            spots.append(
-                {
-                    "status": "empty",
-                    "start_m": round(gap_start, 2),
-                    "end_m": round(gap_end, 2),
-                    "length_m": round(gap_length, 2),
-                    "vehicle": None,
-                }
-            )
+            spots.extend(split_gap_into_spots(gap_start, gap_end, spot_length_m))
 
     spots.sort(key=lambda s: s["start_m"])
     for idx, spot in enumerate(spots, start=1):
