@@ -1,1 +1,47 @@
-test
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+.mypy_cache/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Model weights (downloaded automatically, don't push large binaries)
+*.pt
+*.onnx
+*.engine
+
+# Training outputs
+runs/
+
+# Datasets (raw downloads and prepared data — too large for git, not source code)
+roadside_parking_raw/
+raw_frames/
+raw_labels/
+dataset/
+*.zip
+
+# Calibration data (per-camera, generated at runtime, not source code)
+calibrations/
+*.db
+park_vision.db
+
+# Streamlit
+.streamlit/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Colab-generated checkpoints
+.ipynb_checkpoints/
+
+# Env files with secrets
+.env
