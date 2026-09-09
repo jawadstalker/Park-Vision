@@ -3,13 +3,18 @@ from typing import Dict, List
 import numpy as np
 from ultralytics import YOLO
 
-VEHICLE_CLASS_IDS = {2, 3, 5, 7}
+VEHICLE_CLASS_NAMES = {"car", "motorcycle", "bus", "truck"}
 
 
 class VehicleDetector:
     def __init__(self, model_path: str = "yolov8n.pt", device: str = "cpu") -> None:
         self.model = YOLO(model_path)
         self.device = device
+        self.vehicle_class_ids = [
+            class_id
+            for class_id, name in self.model.names.items()
+            if name in VEHICLE_CLASS_NAMES
+        ]
         dummy = np.zeros((64, 64, 3), dtype=np.uint8)
         self.model.predict(source=dummy, verbose=False, device=self.device)
 
@@ -19,7 +24,7 @@ class VehicleDetector:
             conf=conf,
             iou=iou,
             device=self.device,
-            classes=list(VEHICLE_CLASS_IDS),
+            classes=self.vehicle_class_ids or None,
             verbose=False,
         )
         result = results[0]
