@@ -81,12 +81,10 @@ if mode == "تصویر":
             st.image(
                 cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB),
                 caption="تصویر با تشخیص خودرو",
-                use_container_width=True,
             )
             st.image(
                 cv2.cvtColor(strip, cv2.COLOR_BGR2RGB),
                 caption="نمای طرحی جای‌های پارک (قرمز=اشغال، سبز=خالی)",
-                use_container_width=True,
             )
         with col2:
             render_metrics(len(vehicles), spots)

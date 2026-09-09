@@ -92,7 +92,8 @@ if len(st.session_state.calibration_points) == 4:
     st.image(
         cv2.cvtColor(warped, cv2.COLOR_BGR2RGB),
         caption="اگر خطوط خیابان/جدول در این تصویر مستقیم و موازی به‌نظر می‌رسند، کالیبراسیون درست است.",
-        use_container_width=True,
+        use_column_width=True,
+        
     )
 
     if st.button("ذخیره کالیبراسیون", type="primary"):
