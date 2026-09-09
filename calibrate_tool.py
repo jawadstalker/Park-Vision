@@ -5,27 +5,27 @@ from streamlit_image_coordinates import streamlit_image_coordinates
 
 from app.calibration import compute_homography, load_calibration, save_calibration
 
-st.set_page_config(page_title="ابزار کالیبراسیون دوربین", layout="wide")
-st.title("ابزار کالیبراسیون دوربین")
+st.set_page_config(page_title="Camera Calibration Tool", layout="wide")
+st.title("Camera Calibration Tool")
 st.caption(
-    "روی ۴ نقطه‌ی مشخص در تصویر (مثلاً گوشه‌های جدول یا خط‌کشی خیابان) کلیک کنید و "
-    "فاصله واقعی هر نقطه را روی زمین (بر حسب متر) وارد کنید."
+    "Click on 4 specific points in the image (e.g., table corners or street markings) and "
+    "enter the actual real-world distance of each point on the ground (in meters)."
 )
 
 if "calibration_points" not in st.session_state:
     st.session_state.calibration_points = []
 
 with st.sidebar:
-    st.header("تنظیمات")
-    camera_id = st.text_input("شناسه دوربین (camera_id)", "street-01")
-    if st.button("پاک کردن نقاط انتخاب‌شده"):
+    st.header("Settings")
+    camera_id = st.text_input("Camera ID", "street-01")
+    if st.button("Clear selected points"):
         st.session_state.calibration_points = []
 
     existing = load_calibration(camera_id)
     if existing is not None:
-        st.info(f"دوربین «{camera_id}» از قبل کالیبره شده. ذخیره مجدد آن را بازنویسی می‌کند.")
+        st.info(f"Camera '{camera_id}' is already calibrated. Saving again will overwrite it.")
 
-uploaded_image = st.file_uploader("آپلود تصویر رفرنس دوربین", type=["jpg", "jpeg", "png"])
+uploaded_image = st.file_uploader("Upload reference camera image", type=["jpg", "jpeg", "png"])
 
 if uploaded_image is None:
     st.stop()
@@ -37,18 +37,18 @@ reference_image_rgb = cv2.cvtColor(reference_image_bgr, cv2.COLOR_BGR2RGB)
 col_image, col_points = st.columns([2, 1])
 
 with col_image:
-    st.subheader("تصویر (روی یک نقطه کلیک کنید)")
+    st.subheader("Image (click on a point)")
     click = streamlit_image_coordinates(reference_image_rgb, key="calibration_click")
 
 with col_points:
-    st.subheader("نقطه جدید")
+    st.subheader("New Point")
     if click is not None:
-        st.write(f"پیکسل انتخاب‌شده: ({click['x']}, {click['y']})")
-        real_x = st.number_input("مختصات واقعی X (متر)", value=0.0, step=0.5, key="real_x_input")
-        real_y = st.number_input("مختصات واقعی Y (متر)", value=0.0, step=0.5, key="real_y_input")
-        if st.button("افزودن این نقطه"):
+        st.write(f"Selected pixel: ({click['x']}, {click['y']})")
+        real_x = st.number_input("Real-world X coordinate (meters)", value=0.0, step=0.5, key="real_x_input")
+        real_y = st.number_input("Real-world Y coordinate (meters)", value=0.0, step=0.5, key="real_y_input")
+        if st.button("Add this point"):
             if len(st.session_state.calibration_points) >= 4:
-                st.warning("۴ نقطه کافی است. برای شروع دوباره، ابتدا نقاط را پاک کنید.")
+                st.warning("4 points are enough. To start over, clear the points first.")
             else:
                 st.session_state.calibration_points.append(
                     {
@@ -58,17 +58,17 @@ with col_points:
                 )
                 st.rerun()
     else:
-        st.write("روی تصویر کلیک کنید تا یک نقطه انتخاب شود.")
+        st.write("Click on the image to select a point.")
 
-st.subheader(f"نقاط انتخاب‌شده ({len(st.session_state.calibration_points)}/4)")
+st.subheader(f"Selected points ({len(st.session_state.calibration_points)}/4)")
 st.dataframe(
     [
         {
-            "شماره": i + 1,
-            "پیکسل X": p["pixel"][0],
-            "پیکسل Y": p["pixel"][1],
-            "واقعی X (متر)": p["real_world"][0],
-            "واقعی Y (متر)": p["real_world"][1],
+            "Index": i + 1,
+            "Pixel X": p["pixel"][0],
+            "Pixel Y": p["pixel"][1],
+            "Real X (meters)": p["real_world"][0],
+            "Real Y (meters)": p["real_world"][1],
         }
         for i, p in enumerate(st.session_state.calibration_points)
     ],
@@ -88,16 +88,16 @@ if len(st.session_state.calibration_points) == 4:
         (warped_width, warped_height),
     )
 
-    st.subheader("پیش‌نمایش نمای بالا (برای بررسی صحت کالیبراسیون)")
+    st.subheader("Top-view preview (to verify calibration accuracy)")
     st.image(
         cv2.cvtColor(warped, cv2.COLOR_BGR2RGB),
-        caption="اگر خطوط خیابان/جدول در این تصویر مستقیم و موازی به‌نظر می‌رسند، کالیبراسیون درست است.",
+        caption="If street/table lines appear straight and parallel in this image, calibration is correct.",
         use_column_width=True,
         
     )
 
-    if st.button("ذخیره کالیبراسیون", type="primary"):
+    if st.button("Save calibration", type="primary"):
         save_calibration(camera_id, matrix)
-        st.success(f"کالیبراسیون دوربین «{camera_id}» ذخیره شد.")
+        st.success(f"Calibration for camera '{camera_id}' saved.")
 else:
-    st.info("برای محاسبه کالیبراسیون، ۴ نقطه لازم است.")
+    st.info("4 points are required to compute calibration.")

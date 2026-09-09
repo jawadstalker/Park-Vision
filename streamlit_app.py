@@ -12,7 +12,7 @@ from app.vehicle_detector import VehicleDetector
 from app.visualization import draw_spot_strip, draw_vehicles
 
 st.set_page_config(page_title="Smart Parking Dashboard", layout="wide")
-st.title("داشبورد پارکینگ هوشمند")
+st.title("Smart Parking Dashboard")
 
 
 @st.cache_resource
@@ -24,11 +24,11 @@ def render_spot_table(spots):
     st.dataframe(
         [
             {
-                "شناسه": spot["id"],
-                "وضعیت": "خالی" if spot["status"] == "empty" else "اشغال",
-                "شروع (متر)": spot["start_m"],
-                "پایان (متر)": spot["end_m"],
-                "طول (متر)": spot["length_m"],
+                "ID": spot["id"],
+                "Status": "Empty" if spot["status"] == "empty" else "Occupied",
+                "Start (meters)": spot["start_m"],
+                "End (meters)": spot["end_m"],
+                "Length (meters)": spot["length_m"],
             }
             for spot in spots
         ],
@@ -40,31 +40,31 @@ def render_metrics(vehicle_count, spots):
     occupied = sum(1 for spot in spots if spot["status"] == "occupied")
     empty = sum(1 for spot in spots if spot["status"] == "empty")
     col1, col2, col3 = st.columns(3)
-    col1.metric("خودروهای شناسایی‌شده", vehicle_count)
-    col2.metric("جای‌های خالی", empty)
-    col3.metric("جای‌های اشغال", occupied)
+    col1.metric("Vehicles Detected", vehicle_count)
+    col2.metric("Empty Spots", empty)
+    col3.metric("Occupied Spots", occupied)
 
 
 with st.sidebar:
-    st.header("تنظیمات")
+    st.header("Settings")
     cameras = list_calibrated_cameras()
     if not cameras:
-        st.warning("هیچ دوربینی کالیبره نشده. ابتدا از /calibrate استفاده کنید.")
-    camera_id = st.selectbox("دوربین", cameras) if cameras else None
-    gap_threshold = st.slider("آستانه جای خالی (متر)", 2.0, 8.0, DEFAULT_GAP_THRESHOLD_M, 0.5)
-    conf = st.slider("آستانه اطمینان تشخیص", 0.1, 0.9, 0.35, 0.05)
-    device = st.selectbox("device", ["cpu", "0"])
-    model_path = st.text_input("مسیر وزن مدل", "yolov8n.pt")
+        st.warning("No cameras calibrated. Please use /calibrate first.")
+    camera_id = st.selectbox("Camera", cameras) if cameras else None
+    gap_threshold = st.slider("Empty spot threshold (meters)", 2.0, 8.0, DEFAULT_GAP_THRESHOLD_M, 0.5)
+    conf = st.slider("Detection confidence threshold", 0.1, 0.9, 0.35, 0.05)
+    device = st.selectbox("Device", ["cpu", "0"])
+    model_path = st.text_input("Model weights path", "yolov8n.pt")
 
-mode = st.radio("نوع ورودی", ["تصویر", "ویدیو"], horizontal=True)
+mode = st.radio("Input type", ["Image", "Video"], horizontal=True)
 
 if camera_id is None:
     st.stop()
 
 matrix = load_calibration(camera_id)
 
-if mode == "تصویر":
-    uploaded = st.file_uploader("آپلود تصویر", type=["jpg", "jpeg", "png"])
+if mode == "Image":
+    uploaded = st.file_uploader("Upload image", type=["jpg", "jpeg", "png"])
     if uploaded is not None:
         file_bytes = np.frombuffer(uploaded.read(), dtype=np.uint8)
         frame = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
@@ -80,21 +80,21 @@ if mode == "تصویر":
         with col1:
             st.image(
                 cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB),
-                caption="تصویر با تشخیص خودرو",
+                caption="Image with vehicle detections",
             )
             st.image(
                 cv2.cvtColor(strip, cv2.COLOR_BGR2RGB),
-                caption="نمای طرحی جای‌های پارک (قرمز=اشغال، سبز=خالی)",
+                caption="Parking spot layout (Red=Occupied, Green=Empty)",
             )
         with col2:
             render_metrics(len(vehicles), spots)
             render_spot_table(spots)
 
 else:
-    uploaded_video = st.file_uploader("آپلود ویدیو", type=["mp4", "avi", "mov"])
-    play_full_video = st.checkbox("پردازش کامل ویدیو (پخش خودکار)", value=False)
+    uploaded_video = st.file_uploader("Upload video", type=["mp4", "avi", "mov"])
+    play_full_video = st.checkbox("Process full video (auto-play)", value=False)
     if not play_full_video:
-        st.caption("در حالت خاموش، فقط فریم اول به‌عنوان پیش‌نمایش پردازش می‌شود.")
+        st.caption("In silent mode, only the first frame is processed as preview.")
 
     if uploaded_video is not None:
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
@@ -135,7 +135,7 @@ else:
 
             frame_placeholder.image(
                 cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB),
-                caption=f"فریم {frame_index}",
+                caption=f"Frame {frame_index}",
                 use_container_width=True,
             )
             strip_placeholder.image(
@@ -153,4 +153,4 @@ else:
 
         capture.release()
 
-st.caption("داده‌ها لحظه‌ای پردازش می‌شوند و ذخیره نمی‌گردند.")
+st.caption("Data is processed in real-time and not stored.")

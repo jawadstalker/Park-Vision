@@ -13,10 +13,11 @@ class VehicleDetector:
         dummy = np.zeros((64, 64, 3), dtype=np.uint8)
         self.model.predict(source=dummy, verbose=False, device=self.device)
 
-    def detect(self, image_bgr: np.ndarray, conf: float = 0.35) -> List[Dict]:
+    def detect(self, image_bgr: np.ndarray, conf: float = 0.35, iou: float = 0.45) -> List[Dict]:
         results = self.model.predict(
             source=image_bgr,
             conf=conf,
+            iou=iou,
             device=self.device,
             classes=list(VEHICLE_CLASS_IDS),
             verbose=False,

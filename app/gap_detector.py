@@ -16,6 +16,32 @@ def vehicle_world_extent(matrix: np.ndarray, bbox: List[float]) -> tuple:
     return start, end
 
 
+def merge_overlapping_extents(extents: List[Dict], overlap_ratio: float = 0.4) -> List[Dict]:
+    """Collapse extents that overlap along the street axis into a single vehicle.
+
+    Two boxes on the same real car frequently survive YOLO's NMS as separate
+    detections (slightly different edges). If their 1D overlap covers more
+    than `overlap_ratio` of the shorter one, treat them as one vehicle and
+    keep the union span + the higher-confidence detection.
+    """
+    if not extents:
+        return extents
+
+    merged: List[Dict] = [extents[0]]
+    for current in extents[1:]:
+        last = merged[-1]
+        overlap = min(last["end"], current["end"]) - max(last["start"], current["start"])
+        shorter = min(last["end"] - last["start"], current["end"] - current["start"])
+        if shorter > 0 and overlap / shorter >= overlap_ratio:
+            last["start"] = min(last["start"], current["start"])
+            last["end"] = max(last["end"], current["end"])
+            if current["vehicle"]["confidence"] > last["vehicle"]["confidence"]:
+                last["vehicle"] = current["vehicle"]
+        else:
+            merged.append(current)
+    return merged
+
+
 def detect_gaps(
     matrix: np.ndarray,
     vehicles: List[Dict],
@@ -26,6 +52,7 @@ def detect_gaps(
         start, end = vehicle_world_extent(matrix, vehicle["bbox"])
         extents.append({"vehicle": vehicle, "start": start, "end": end})
     extents.sort(key=lambda e: e["start"])
+    extents = merge_overlapping_extents(extents)
 
     spots: List[Dict] = []
 
