@@ -136,6 +136,9 @@ No street footage yet? [`colab/park_vision_roadside_parking_finetune.ipynb`](col
 downloads a public street-level dataset from Roboflow and runs the whole
 pipeline end to end on Google Colab.
 
+<p align="center">
+  <img src="./sample/sample.png" alt="NeuroLia Logo" width="180"/>
+</p>
 ## Tests
 
 ```bash
