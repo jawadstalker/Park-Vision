@@ -42,3 +42,24 @@ def draw_spot_strip(spots, width=800, height=80, margin=20):
         cv2.rectangle(canvas, (x1, 15), (x2, height - 15), (30, 30, 30), 1)
 
     return canvas
+
+
+def draw_pixel_spots(frame_bgr, slots):
+    annotated = frame_bgr.copy()
+    for slot in slots:
+        x1, y1, x2, y2 = [int(c) for c in slot["bbox"]]
+        is_empty = slot["status"] == "empty"
+        color = (0, 200, 0) if is_empty else (0, 0, 220)
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+        label = "Empty" if is_empty else "Occupied"
+        cv2.putText(
+            annotated,
+            label,
+            (x1, max(0, y1 - 6)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            color,
+            1,
+            cv2.LINE_AA,
+        )
+    return annotated
