@@ -178,3 +178,36 @@ def test_refine_with_low_confidence_recheck_skips_small_gaps():
 
     augmented = refine_with_low_confidence_recheck(_ShouldNeverBeCalled(), fake_image, vehicles)
     assert len(augmented) == 2
+
+
+def test_detect_pixel_gaps_single_vehicle_without_frame_width_stays_zero_empty():
+    vehicles = [{"bbox": [400, 200, 500, 260]}]
+    slots = detect_pixel_gaps(vehicles)
+    assert sum(1 for s in slots if s["status"] == "empty") == 0
+
+
+def test_detect_pixel_gaps_single_vehicle_with_frame_width_finds_edge_space():
+    vehicles = [{"bbox": [400, 200, 500, 260]}]
+    slots = detect_pixel_gaps(vehicles, frame_width=900)
+    empty = [s for s in slots if s["status"] == "empty"]
+    assert len(empty) == 8
+    # Space strictly before and after the single vehicle must both be covered.
+    assert any(s["bbox"][1] < 400 for s in empty) or any(s["bbox"][0] < 400 for s in empty)
+    assert any(s["bbox"][0] >= 500 for s in empty)
+
+
+def test_detect_pixel_gaps_edge_space_too_small_is_ignored():
+    vehicles = [{"bbox": [5, 200, 105, 260]}]  # only 5px before it, way less than one car width
+    slots = detect_pixel_gaps(vehicles, frame_width=110)
+    empty = [s for s in slots if s["status"] == "empty"]
+    assert len(empty) == 0
+
+
+def test_detect_pixel_gaps_multi_row_passes_frame_width_through():
+    vehicles = [
+        {"bbox": [400, 50, 500, 90]},
+        {"bbox": [400, 200, 500, 260]},
+    ]
+    slots = detect_pixel_gaps_multi_row(vehicles, frame_width=900)
+    empty = [s for s in slots if s["status"] == "empty"]
+    assert len(empty) > 0

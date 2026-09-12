@@ -11,7 +11,25 @@ DEFAULT_GAP_TRIGGER_RATIO = 1.5
 DEFAULT_DEDUPE_IOU = 0.3
 
 
-def detect_pixel_gaps(vehicles: List[Dict], min_gap_ratio: float = DEFAULT_MIN_GAP_RATIO) -> List[Dict]:
+def _subdivide_edge_gap(gap_start: float, gap_end: float, unit_width: float, edge_bbox: List[float]) -> List[Dict]:
+    gap_width = gap_end - gap_start
+    spot_count = max(1, int(gap_width // unit_width))
+    used = unit_width * spot_count
+    margin = (gap_width - used) / 2.0
+
+    spots = []
+    for k in range(spot_count):
+        x1 = gap_start + margin + k * unit_width
+        x2 = x1 + unit_width
+        spots.append({"status": "empty", "bbox": [x1, edge_bbox[1], x2, edge_bbox[3]]})
+    return spots
+
+
+def detect_pixel_gaps(
+    vehicles: List[Dict],
+    min_gap_ratio: float = DEFAULT_MIN_GAP_RATIO,
+    frame_width: float = None,
+) -> List[Dict]:
     if not vehicles:
         return []
 
@@ -46,6 +64,19 @@ def detect_pixel_gaps(vehicles: List[Dict], min_gap_ratio: float = DEFAULT_MIN_G
                 top = left[1] + (right[1] - left[1]) * frac
                 bottom = left[3] + (right[3] - left[3]) * frac
                 slots.append({"status": "empty", "bbox": [x1, top, x2, bottom]})
+
+    if frame_width is not None:
+        first = sorted_vehicles[0]["bbox"]
+        first_width = first[2] - first[0]
+        left_edge_width = first[0] - 0.0
+        if left_edge_width >= first_width * min_gap_ratio:
+            slots.extend(_subdivide_edge_gap(0.0, first[0], first_width, first))
+
+        last = sorted_vehicles[-1]["bbox"]
+        last_width = last[2] - last[0]
+        right_edge_width = frame_width - last[2]
+        if right_edge_width >= last_width * min_gap_ratio:
+            slots.extend(_subdivide_edge_gap(last[2], frame_width, last_width, last))
 
     slots.sort(key=lambda s: s["bbox"][0])
     for idx, slot in enumerate(slots, start=1):
@@ -91,12 +122,13 @@ def detect_pixel_gaps_multi_row(
     vehicles: List[Dict],
     min_gap_ratio: float = DEFAULT_MIN_GAP_RATIO,
     row_tolerance_ratio: float = DEFAULT_ROW_TOLERANCE_RATIO,
+    frame_width: float = None,
 ) -> List[Dict]:
     rows = cluster_vehicles_by_row(vehicles, row_tolerance_ratio)
 
     all_slots: List[Dict] = []
     for row in rows:
-        all_slots.extend(detect_pixel_gaps(row, min_gap_ratio=min_gap_ratio))
+        all_slots.extend(detect_pixel_gaps(row, min_gap_ratio=min_gap_ratio, frame_width=frame_width))
 
     all_slots.sort(key=lambda s: (s["bbox"][1], s["bbox"][0]))
     for idx, slot in enumerate(all_slots, start=1):

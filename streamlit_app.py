@@ -7,9 +7,14 @@ import streamlit as st
 
 from app.calibration import list_calibrated_cameras, load_calibration
 from app.gap_detector import DEFAULT_GAP_THRESHOLD_M, detect_gaps
+from app.pixel_gap_detector import (
+    DEFAULT_MIN_GAP_RATIO,
+    detect_pixel_gaps_multi_row,
+    refine_with_low_confidence_recheck,
+)
 from app.tracker import Sort
 from app.vehicle_detector import VehicleDetector
-from app.visualization import draw_spot_strip, draw_vehicles
+from app.visualization import draw_pixel_spots, draw_spot_strip, draw_vehicles
 
 st.set_page_config(page_title="Smart Parking Dashboard", layout="wide")
 st.title("Smart Parking Dashboard")
@@ -36,6 +41,20 @@ def render_spot_table(spots):
     )
 
 
+def render_pixel_spot_table(slots):
+    st.dataframe(
+        [
+            {
+                "ID": slot["id"],
+                "Status": "Empty" if slot["status"] == "empty" else "Occupied",
+                "Box (px)": [round(c) for c in slot["bbox"]],
+            }
+            for slot in slots
+        ],
+        use_container_width=True,
+    )
+
+
 def render_metrics(vehicle_count, spots):
     occupied = sum(1 for spot in spots if spot["status"] == "occupied")
     empty = sum(1 for spot in spots if spot["status"] == "empty")
@@ -47,21 +66,38 @@ def render_metrics(vehicle_count, spots):
 
 with st.sidebar:
     st.header("Settings")
-    cameras = list_calibrated_cameras()
-    if not cameras:
-        st.warning("No cameras calibrated. Please use /calibrate first.")
-    camera_id = st.selectbox("Camera", cameras) if cameras else None
-    gap_threshold = st.slider("Empty spot threshold (meters)", 2.0, 8.0, DEFAULT_GAP_THRESHOLD_M, 0.5)
+    detection_mode = st.radio(
+        "Detection mode",
+        ["Calibrated (meters)", "No calibration (pixel-based)"],
+        help=(
+            "Calibrated mode needs a camera calibrated via calibrate_tool.py and reports "
+            "real-world meters. Pixel-based mode needs no calibration and draws boxes "
+            "directly on the photo using detected vehicle width as the unit."
+        ),
+    )
     conf = st.slider("Detection confidence threshold", 0.1, 0.9, 0.35, 0.05)
     device = st.selectbox("Device", ["cpu", "0"])
     model_path = st.text_input("Model weights path", "yolov8n.pt")
+
+    if detection_mode == "Calibrated (meters)":
+        cameras = list_calibrated_cameras()
+        if not cameras:
+            st.warning("No cameras calibrated. Please use calibrate_tool.py first.")
+        camera_id = st.selectbox("Camera", cameras) if cameras else None
+        gap_threshold = st.slider("Empty spot threshold (meters)", 2.0, 8.0, DEFAULT_GAP_THRESHOLD_M, 0.5)
+    else:
+        camera_id = "pixel-mode"  # not a real calibrated camera, just a non-None sentinel
+        min_gap_ratio = st.slider("Minimum gap ratio (x car width)", 0.5, 2.0, DEFAULT_MIN_GAP_RATIO, 0.05)
+        row_tolerance_ratio = st.slider("Row grouping tolerance", 0.2, 1.5, 0.6, 0.05)
+        enable_recheck = st.checkbox("Recheck large gaps at lower confidence (slower)", value=True)
 
 mode = st.radio("Input type", ["Image", "Video"], horizontal=True)
 
 if camera_id is None:
     st.stop()
 
-matrix = load_calibration(camera_id)
+if detection_mode == "Calibrated (meters)":
+    matrix = load_calibration(camera_id)
 
 if mode == "Image":
     uploaded = st.file_uploader("Upload image", type=["jpg", "jpeg", "png"])
@@ -71,24 +107,45 @@ if mode == "Image":
 
         detector = get_detector(model_path, device)
         vehicles = detector.detect(frame, conf=conf)
-        spots = detect_gaps(matrix, vehicles, threshold_m=gap_threshold)
 
-        annotated = draw_vehicles(frame, vehicles)
-        strip = draw_spot_strip(spots)
+        if detection_mode == "Calibrated (meters)":
+            spots = detect_gaps(matrix, vehicles, threshold_m=gap_threshold)
+            annotated = draw_vehicles(frame, vehicles)
+            strip = draw_spot_strip(spots)
 
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            st.image(
-                cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB),
-                caption="Image with vehicle detections",
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                st.image(
+                    cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB),
+                    caption="Image with vehicle detections",
+                )
+                st.image(
+                    cv2.cvtColor(strip, cv2.COLOR_BGR2RGB),
+                    caption="Parking spot layout (Red=Occupied, Green=Empty)",
+                )
+            with col2:
+                render_metrics(len(vehicles), spots)
+                render_spot_table(spots)
+        else:
+            if enable_recheck:
+                vehicles = refine_with_low_confidence_recheck(detector, frame, vehicles)
+            slots = detect_pixel_gaps_multi_row(
+                vehicles,
+                min_gap_ratio=min_gap_ratio,
+                row_tolerance_ratio=row_tolerance_ratio,
+                frame_width=frame.shape[1],
             )
-            st.image(
-                cv2.cvtColor(strip, cv2.COLOR_BGR2RGB),
-                caption="Parking spot layout (Red=Occupied, Green=Empty)",
-            )
-        with col2:
-            render_metrics(len(vehicles), spots)
-            render_spot_table(spots)
+            annotated = draw_pixel_spots(frame, slots)
+
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                st.image(
+                    cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB),
+                    caption="Detected vehicles (red) and candidate empty spots (green)",
+                )
+            with col2:
+                render_metrics(len(vehicles), slots)
+                render_pixel_spot_table(slots)
 
 else:
     uploaded_video = st.file_uploader("Upload video", type=["mp4", "avi", "mov"])
@@ -128,23 +185,44 @@ else:
                 {"bbox": [float(x1), float(y1), float(x2), float(y2)], "track_id": int(track_id)}
                 for x1, y1, x2, y2, track_id in tracked
             ]
-            spots = detect_gaps(matrix, vehicles, threshold_m=gap_threshold)
 
-            annotated = draw_vehicles(frame, vehicles)
-            strip = draw_spot_strip(spots)
+            if detection_mode == "Calibrated (meters)":
+                spots = detect_gaps(matrix, vehicles, threshold_m=gap_threshold)
+                annotated = draw_vehicles(frame, vehicles)
+                strip = draw_spot_strip(spots)
 
-            frame_placeholder.image(
-                cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB),
-                caption=f"Frame {frame_index}",
-                use_container_width=True,
-            )
-            strip_placeholder.image(
-                cv2.cvtColor(strip, cv2.COLOR_BGR2RGB), use_container_width=True
-            )
-            with metrics_placeholder.container():
-                render_metrics(len(vehicles), spots)
-            with table_placeholder.container():
-                render_spot_table(spots)
+                frame_placeholder.image(
+                    cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB),
+                    caption=f"Frame {frame_index}",
+                    use_container_width=True,
+                )
+                strip_placeholder.image(
+                    cv2.cvtColor(strip, cv2.COLOR_BGR2RGB), use_container_width=True
+                )
+                with metrics_placeholder.container():
+                    render_metrics(len(vehicles), spots)
+                with table_placeholder.container():
+                    render_spot_table(spots)
+            else:
+                if enable_recheck:
+                    vehicles = refine_with_low_confidence_recheck(detector, frame, vehicles)
+                slots = detect_pixel_gaps_multi_row(
+                    vehicles,
+                    min_gap_ratio=min_gap_ratio,
+                    row_tolerance_ratio=row_tolerance_ratio,
+                    frame_width=frame.shape[1],
+                )
+                annotated = draw_pixel_spots(frame, slots)
+
+                frame_placeholder.image(
+                    cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB),
+                    caption=f"Frame {frame_index}",
+                    use_container_width=True,
+                )
+                with metrics_placeholder.container():
+                    render_metrics(len(vehicles), slots)
+                with table_placeholder.container():
+                    render_pixel_spot_table(slots)
 
             frame_index += 1
             if not play_full_video:
