@@ -15,3 +15,4 @@ redis==5.0.8
 psycopg2-binary==2.9.9
 flower==2.0.1
 slowapi==0.1.9
+prometheus-fastapi-instrumentator==7.0.0

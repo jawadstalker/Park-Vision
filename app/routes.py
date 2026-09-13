@@ -1,4 +1,6 @@
 import base64
+import logging
+import os
 import time
 from typing import List
 
@@ -23,6 +25,7 @@ from .pixel_gap_detector import (
     detect_pixel_gaps_multi_row,
     refine_with_low_confidence_recheck,
 )
+from .rate_limit import DETECT_RATE_LIMIT, limiter
 from .schemas import (
     CalibrationRequest,
     CalibrationResponse,
@@ -41,6 +44,9 @@ from .schemas import (
 from .tasks import celery_app, run_detection_task
 
 router = APIRouter()
+logger = logging.getLogger("park_vision.routes")
+
+MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_MB", "10")) * 1024 * 1024
 
 
 def decode_image(image_bytes: bytes) -> np.ndarray:
@@ -51,7 +57,28 @@ def decode_image(image_bytes: bytes) -> np.ndarray:
     return image
 
 
+async def read_upload_within_limit(image: UploadFile) -> bytes:
+    """Reads the upload but refuses anything over MAX_UPLOAD_MB instead of
+    buffering an arbitrarily large file into memory (a single oversized
+    request could otherwise take a worker down)."""
+    chunks = []
+    total = 0
+    while True:
+        chunk = await image.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Image exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)}MB upload limit.",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 @router.post("/detect", response_model=DetectResponse)
+@limiter.limit(DETECT_RATE_LIMIT)
 async def detect(
     request: Request,
     camera_id: str = Form(...),
@@ -60,6 +87,10 @@ async def detect(
     api_key: str = Depends(require_api_key),
 ):
     authorize_camera_access(api_key, camera_id)
+    image_bytes = await read_upload_within_limit(image)
+    if not image_bytes:
+        raise HTTPException(status_code=422, detail="Uploaded image is empty.")
+
     matrix = load_calibration(camera_id)
     if matrix is None:
         raise HTTPException(
@@ -71,10 +102,6 @@ async def detect(
     if detector is None:
         raise HTTPException(status_code=503, detail="Model not loaded.")
 
-    image_bytes = await image.read()
-    if not image_bytes:
-        raise HTTPException(status_code=422, detail="Uploaded image is empty.")
-
     image_bgr = decode_image(image_bytes)
     height, width = image_bgr.shape[:2]
 
@@ -82,7 +109,10 @@ async def detect(
     vehicles = await run_in_threadpool(detector.detect, image_bgr)
     spots = detect_gaps(matrix, vehicles, threshold_m=gap_threshold_m)
     elapsed_ms = (time.perf_counter() - start_time) * 1000.0
-
+    logger.info(
+        "detect completed",
+        extra={"camera_id": camera_id, "duration_ms": round(elapsed_ms, 2), "path": "/detect"},
+    )
     vehicle_responses = [
         VehicleDetection(
             id=i + 1,
@@ -130,6 +160,7 @@ async def detect(
 
 
 @router.post("/detect-pixel", response_model=PixelDetectResponse)
+@limiter.limit(DETECT_RATE_LIMIT)
 async def detect_pixel(
     request: Request,
     image: UploadFile = File(...),
@@ -146,7 +177,7 @@ async def detect_pixel(
     if detector is None:
         raise HTTPException(status_code=503, detail="Model not loaded.")
 
-    image_bytes = await image.read()
+    image_bytes = await read_upload_within_limit(image)
     if not image_bytes:
         raise HTTPException(status_code=422, detail="Uploaded image is empty.")
 
@@ -209,13 +240,20 @@ async def history_cameras():
 
 
 @router.post("/calibrate", response_model=CalibrationResponse)
-async def calibrate(payload: CalibrationRequest, api_key: str = Depends(require_api_key)):
+@limiter.limit(DETECT_RATE_LIMIT)
+async def calibrate(
+    request: Request, payload: CalibrationRequest, api_key: str = Depends(require_api_key)
+):
     authorize_camera_access(api_key, payload.camera_id)
     pixel_points = [(p.pixel.x, p.pixel.y) for p in payload.points]
     real_world_points = [(p.real_world.x, p.real_world.y) for p in payload.points]
     try:
         matrix = compute_homography(pixel_points, real_world_points)
     except BadCalibrationError as exc:
+        logger.warning(
+            "calibration rejected",
+            extra={"camera_id": payload.camera_id, "path": "/calibrate"},
+        )
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     save_calibration(payload.camera_id, matrix)
     return CalibrationResponse(
@@ -226,7 +264,9 @@ async def calibrate(payload: CalibrationRequest, api_key: str = Depends(require_
 
 
 @router.post("/detect-async", response_model=JobEnqueuedResponse)
+@limiter.limit(DETECT_RATE_LIMIT)
 async def detect_async(
+    request: Request,
     camera_id: str = Form(...),
     gap_threshold_m: float = Form(DEFAULT_GAP_THRESHOLD_M),
     image: UploadFile = File(...),
@@ -240,7 +280,7 @@ async def detect_async(
     Poll /jobs/{job_id} for the result.
     """
     authorize_camera_access(api_key, camera_id)
-    image_bytes = await image.read()
+    image_bytes = await read_upload_within_limit(image)
     if not image_bytes:
         raise HTTPException(status_code=422, detail="Uploaded image is empty.")
     if load_calibration(camera_id) is None:
