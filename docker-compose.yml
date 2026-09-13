@@ -1,22 +1,68 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=park_vision
+      - POSTGRES_USER=park_vision
+      - POSTGRES_PASSWORD=change-me # override in a real deployment
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
   api:
     build: .
     ports:
       - "8000:8000"
-    volumes:
-      - calibrations:/srv/calibrations
     environment:
-      - CALIBRATION_DIR=/srv/calibrations
+      - DATABASE_URL=postgresql+psycopg2://park_vision:change-me@postgres:5432/park_vision
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      # - PARK_VISION_API_KEYS=key-for-camera-a:cam-a;key-for-everything:*
+      - MAX_UPLOAD_MB=10
+      - RATE_LIMIT=60/minute
+    depends_on:
+      - postgres
+      - redis
+
+  # Scale with: docker compose up --scale worker=3
+  # (the "replicas" field under deploy: is a Swarm-only setting and is
+  # silently ignored by plain `docker compose up`; --scale is what actually
+  # works here.)
+  worker:
+    build: .
+    command: ["celery", "-A", "app.tasks", "worker", "--concurrency=2", "--loglevel=info"]
+    environment:
+      - DATABASE_URL=postgresql+psycopg2://park_vision:change-me@postgres:5432/park_vision
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+
+  flower:
+    build: .
+    command: ["celery", "-A", "app.tasks", "flower", "--port=5555"]
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
 
   dashboard:
     build: .
     command: ["streamlit", "run", "streamlit_app.py", "--server.address=0.0.0.0", "--server.port=8501"]
     ports:
       - "8501:8501"
-    volumes:
-      - calibrations:/srv/calibrations
     environment:
-      - CALIBRATION_DIR=/srv/calibrations
+      - DATABASE_URL=postgresql+psycopg2://park_vision:change-me@postgres:5432/park_vision
     depends_on:
       - api
 
@@ -25,10 +71,10 @@ services:
     command: ["streamlit", "run", "calibrate_tool.py", "--server.address=0.0.0.0", "--server.port=8502"]
     ports:
       - "8502:8502"
-    volumes:
-      - calibrations:/srv/calibrations
     environment:
-      - CALIBRATION_DIR=/srv/calibrations
+      - DATABASE_URL=postgresql+psycopg2://park_vision:change-me@postgres:5432/park_vision
+    depends_on:
+      - postgres
 
 volumes:
-  calibrations:
+  postgres_data:

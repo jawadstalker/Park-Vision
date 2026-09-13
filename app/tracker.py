@@ -125,28 +125,76 @@ def associate_detections_to_trackers(detections, tracked_boxes, iou_threshold):
 
 
 class Sort:
-    def __init__(self, max_age=5, min_hits=3, iou_threshold=0.3):
+    """SORT with ByteTrack-style two-stage association.
+
+    Stage 1 matches high-confidence detections against all tracks (as
+    plain SORT does). Stage 2 takes tracks that stayed unmatched and
+    tries to recover them with the low-confidence detections that stage 1
+    ignored, using a looser IoU threshold. This is what lets a track
+    survive a frame where the vehicle is partially occluded and the
+    detector's confidence drops, instead of the track dying and a new ID
+    being assigned once the vehicle re-emerges.
+
+    New tracks are only ever started from high-confidence detections —
+    low-confidence boxes are only used to keep existing tracks alive,
+    never to spawn new ones, since they're too noisy to trust on their own.
+    """
+
+    def __init__(
+        self,
+        max_age=5,
+        min_hits=3,
+        iou_threshold=0.3,
+        high_conf_threshold=0.5,
+        low_conf_iou_threshold=None,
+    ):
         self.max_age = max_age
         self.min_hits = min_hits
         self.iou_threshold = iou_threshold
+        self.high_conf_threshold = high_conf_threshold
+        self.low_conf_iou_threshold = (
+            low_conf_iou_threshold if low_conf_iou_threshold is not None else iou_threshold * 0.5
+        )
         self.trackers = []
         self.frame_count = 0
 
     def update(self, detections):
         self.frame_count += 1
 
-        predicted_boxes = np.array([t.predict() for t in self.trackers]) if self.trackers else np.empty((0, 4))
-        detection_boxes = detections[:, :4] if len(detections) else np.empty((0, 4))
-
-        matches, unmatched_detections, unmatched_trackers = associate_detections_to_trackers(
-            detection_boxes, predicted_boxes, self.iou_threshold
+        predicted_boxes = (
+            np.array([t.predict() for t in self.trackers]) if self.trackers else np.empty((0, 4))
         )
 
-        for det_idx, trk_idx in matches:
-            self.trackers[trk_idx].update(detection_boxes[det_idx])
+        if len(detections):
+            confidences = detections[:, 4]
+            high_idx = np.where(confidences >= self.high_conf_threshold)[0]
+            low_idx = np.where(confidences < self.high_conf_threshold)[0]
+        else:
+            high_idx = np.empty((0,), dtype=int)
+            low_idx = np.empty((0,), dtype=int)
 
-        for det_idx in unmatched_detections:
-            self.trackers.append(KalmanBoxTracker(detection_boxes[det_idx]))
+        high_boxes = detections[high_idx, :4] if len(high_idx) else np.empty((0, 4))
+        low_boxes = detections[low_idx, :4] if len(low_idx) else np.empty((0, 4))
+
+        # Stage 1: high-confidence detections vs. all tracks.
+        matches1, unmatched_high_local, unmatched_trk_1 = associate_detections_to_trackers(
+            high_boxes, predicted_boxes, self.iou_threshold
+        )
+        for det_local, trk_idx in matches1:
+            self.trackers[trk_idx].update(high_boxes[det_local])
+
+        # Stage 2: low-confidence detections vs. tracks still unmatched.
+        remaining_boxes = predicted_boxes[unmatched_trk_1] if unmatched_trk_1 else np.empty((0, 4))
+        matches2, _unmatched_low_local, unmatched_trk_2_local = associate_detections_to_trackers(
+            low_boxes, remaining_boxes, self.low_conf_iou_threshold
+        )
+        for det_local, remaining_trk_local in matches2:
+            trk_idx = unmatched_trk_1[remaining_trk_local]
+            self.trackers[trk_idx].update(low_boxes[det_local])
+
+        # New tracks only from unmatched high-confidence detections.
+        for det_local in unmatched_high_local:
+            self.trackers.append(KalmanBoxTracker(high_boxes[det_local]))
 
         output = []
         alive_trackers = []

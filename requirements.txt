@@ -10,3 +10,8 @@ scipy==1.13.1
 streamlit==1.38.0
 streamlit-image-coordinates==0.4.1
 sqlalchemy==2.0.35
+celery==5.4.0
+redis==5.0.8
+psycopg2-binary==2.9.9
+flower==2.0.1
+slowapi==0.1.9

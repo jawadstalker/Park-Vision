@@ -197,6 +197,20 @@ def test_detect_calibrated_endpoint_also_saves_history(client):
     assert body["records"][0]["mode"] == "calibrated"
 
 
+def test_calibrate_rejects_bad_camera_angle(client):
+    payload = {
+        "camera_id": "bad-angle-cam",
+        "points": [
+            {"pixel": {"x": 0, "y": 480}, "real_world": {"x": 0, "y": 0}},
+            {"pixel": {"x": 640, "y": 480}, "real_world": {"x": 20, "y": 0}},
+            {"pixel": {"x": 640, "y": 300}, "real_world": {"x": 10.5, "y": 6}},
+            {"pixel": {"x": 0, "y": 300}, "real_world": {"x": 9.5, "y": 6}},
+        ],
+    }
+    response = client.post("/calibrate", json=payload)
+    assert response.status_code == 422
+
+
 def test_history_unknown_camera_returns_empty_list(client):
     response = client.get("/history/never-seen")
     assert response.status_code == 200

@@ -98,5 +98,17 @@ class StatusResponse(BaseModel):
     uptime_seconds: float
 
 
+class JobEnqueuedResponse(BaseModel):
+    job_id: str
+    status: Literal["queued"]
+
+
+class JobStatusResponse(BaseModel):
+    job_id: str
+    state: str
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+
 class ErrorResponse(BaseModel):
     detail: str

@@ -13,10 +13,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY streamlit_app.py calibrate_tool.py ./
 
-ENV CALIBRATION_DIR=/srv/calibrations
-RUN mkdir -p ${CALIBRATION_DIR}
-VOLUME ["/srv/calibrations"]
-
 EXPOSE 8000
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

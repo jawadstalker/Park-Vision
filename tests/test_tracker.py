@@ -63,6 +63,32 @@ def test_tracker_assigns_distinct_ids_to_two_objects():
     assert tracks[0][4] != tracks[1][4]
 
 
+def test_tracker_survives_low_confidence_dip_via_second_stage():
+    # Simulates partial occlusion: detector still fires but confidence
+    # drops below the high-confidence threshold for a couple of frames.
+    # Plain single-stage SORT would treat these as unmatched/no detection
+    # once conf is filtered upstream; here they arrive as low-conf boxes
+    # and stage 2 should still use them to keep the same track alive.
+    tracker = Sort(max_age=5, min_hits=2, iou_threshold=0.3, high_conf_threshold=0.5)
+    ids = []
+    for frame in range(8):
+        x = 100 + frame * 5
+        conf = 0.2 if 3 <= frame <= 4 else 0.9
+        detections = np.array([[x, 100, x + 80, 160, conf]])
+        tracker.update(detections)
+    # After the dip, a high-confidence detection should still match the
+    # same underlying track rather than spawning a new id.
+    final = tracker.update(np.array([[100 + 8 * 5, 100, 100 + 8 * 5 + 80, 160, 0.9]]))
+    assert len(final) == 1
+    assert len(tracker.trackers) == 1
+
+
+def test_tracker_does_not_spawn_new_track_from_low_confidence_only():
+    tracker = Sort(max_age=5, min_hits=1, iou_threshold=0.3, high_conf_threshold=0.5)
+    tracker.update(np.array([[500, 500, 560, 560, 0.2]]))
+    assert len(tracker.trackers) == 0
+
+
 def test_tracker_drops_track_after_max_age():
     tracker = Sort(max_age=2, min_hits=1, iou_threshold=0.3)
     tracker.update(np.array([[100, 100, 180, 160, 0.9]]))

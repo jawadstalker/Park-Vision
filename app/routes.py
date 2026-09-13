@@ -1,11 +1,15 @@
+import base64
 import time
 from typing import List
 
 import cv2
 import numpy as np
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from starlette.concurrency import run_in_threadpool
 
+from .auth import authorize_camera_access, require_api_key
 from .calibration import (
+    BadCalibrationError,
     compute_homography,
     list_calibrated_cameras,
     load_calibration,
@@ -24,6 +28,8 @@ from .schemas import (
     CalibrationResponse,
     DetectResponse,
     HistoryResponse,
+    JobEnqueuedResponse,
+    JobStatusResponse,
     ParkingSpot,
     PixelDetectResponse,
     PixelSpot,
@@ -32,6 +38,7 @@ from .schemas import (
     StatusResponse,
     VehicleDetection,
 )
+from .tasks import celery_app, run_detection_task
 
 router = APIRouter()
 
@@ -50,7 +57,9 @@ async def detect(
     camera_id: str = Form(...),
     gap_threshold_m: float = Form(DEFAULT_GAP_THRESHOLD_M),
     image: UploadFile = File(...),
+    api_key: str = Depends(require_api_key),
 ):
+    authorize_camera_access(api_key, camera_id)
     matrix = load_calibration(camera_id)
     if matrix is None:
         raise HTTPException(
@@ -70,7 +79,7 @@ async def detect(
     height, width = image_bgr.shape[:2]
 
     start_time = time.perf_counter()
-    vehicles = detector.detect(image_bgr)
+    vehicles = await run_in_threadpool(detector.detect, image_bgr)
     spots = detect_gaps(matrix, vehicles, threshold_m=gap_threshold_m)
     elapsed_ms = (time.perf_counter() - start_time) * 1000.0
 
@@ -129,7 +138,10 @@ async def detect_pixel(
     min_gap_ratio: float = Form(DEFAULT_MIN_GAP_RATIO),
     row_tolerance_ratio: float = Form(DEFAULT_ROW_TOLERANCE_RATIO),
     enable_recheck: bool = Form(True),
+    api_key: str = Depends(require_api_key),
 ):
+    if camera_id:
+        authorize_camera_access(api_key, camera_id)
     detector = getattr(request.app.state, "detector", None)
     if detector is None:
         raise HTTPException(status_code=503, detail="Model not loaded.")
@@ -142,9 +154,11 @@ async def detect_pixel(
     height, width = image_bgr.shape[:2]
 
     start_time = time.perf_counter()
-    vehicles = detector.detect(image_bgr, conf=conf)
+    vehicles = await run_in_threadpool(detector.detect, image_bgr, conf=conf)
     if enable_recheck and len(vehicles) >= 2:
-        vehicles = refine_with_low_confidence_recheck(detector, image_bgr, vehicles)
+        vehicles = await run_in_threadpool(
+            refine_with_low_confidence_recheck, detector, image_bgr, vehicles
+        )
     slots = detect_pixel_gaps_multi_row(
         vehicles,
         min_gap_ratio=min_gap_ratio,
@@ -195,15 +209,70 @@ async def history_cameras():
 
 
 @router.post("/calibrate", response_model=CalibrationResponse)
-async def calibrate(payload: CalibrationRequest):
+async def calibrate(payload: CalibrationRequest, api_key: str = Depends(require_api_key)):
+    authorize_camera_access(api_key, payload.camera_id)
     pixel_points = [(p.pixel.x, p.pixel.y) for p in payload.points]
     real_world_points = [(p.real_world.x, p.real_world.y) for p in payload.points]
-    matrix = compute_homography(pixel_points, real_world_points)
+    try:
+        matrix = compute_homography(pixel_points, real_world_points)
+    except BadCalibrationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     save_calibration(payload.camera_id, matrix)
     return CalibrationResponse(
         camera_id=payload.camera_id,
         calibrated=True,
         homography=matrix.tolist(),
+    )
+
+
+@router.post("/detect-async", response_model=JobEnqueuedResponse)
+async def detect_async(
+    camera_id: str = Form(...),
+    gap_threshold_m: float = Form(DEFAULT_GAP_THRESHOLD_M),
+    image: UploadFile = File(...),
+    api_key: str = Depends(require_api_key),
+):
+    """Enqueues a detection job on a Celery worker instead of running inline.
+
+    Use this instead of /detect when running many cameras: it lets the API
+    process stay lightweight (no model loaded, never blocked on inference)
+    while one or more `celery -A app.tasks worker` processes do the work.
+    Poll /jobs/{job_id} for the result.
+    """
+    authorize_camera_access(api_key, camera_id)
+    image_bytes = await image.read()
+    if not image_bytes:
+        raise HTTPException(status_code=422, detail="Uploaded image is empty.")
+    if load_calibration(camera_id) is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Camera '{camera_id}' is not calibrated. Call /calibrate first.",
+        )
+
+    image_b64 = base64.b64encode(image_bytes).decode("ascii")
+    task = run_detection_task.delay(image_b64, camera_id, gap_threshold_m)
+    return JobEnqueuedResponse(job_id=task.id, status="queued")
+
+
+@router.get("/jobs/{job_id}", response_model=JobStatusResponse)
+async def job_status(job_id: str):
+    result = celery_app.AsyncResult(job_id)
+    payload = None
+    error = None
+    if result.successful():
+        value = result.result
+        if isinstance(value, dict) and "error" in value:
+            error = value["error"]
+        else:
+            payload = value
+    elif result.failed():
+        error = str(result.result)
+
+    return JobStatusResponse(
+        job_id=job_id,
+        state=result.state,
+        result=payload,
+        error=error,
     )
 
 
