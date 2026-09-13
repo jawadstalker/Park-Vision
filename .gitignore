@@ -1,47 +1,41 @@
-# Python
-__pycache__/
-*.pyc
-*.pyo
-.pytest_cache/
-*.egg-info/
-.mypy_cache/
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
 
-# Virtual environments
-venv/
-.venv/
-env/
+# dependencies
+node_modules/
 
-# Model weights (downloaded automatically, don't push large binaries)
-*.pt
-*.onnx
-*.engine
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
 
-# Training outputs
-runs/
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
 
-# Datasets (raw downloads and prepared data — too large for git, not source code)
-roadside_parking_raw/
-raw_frames/
-raw_labels/
-dataset/
-*.zip
+# Metro
+.metro-health-check*
 
-# Calibration data (per-camera, generated at runtime, not source code)
-calibrations/
-*.db
-park_vision.db
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
 
-# Streamlit
-.streamlit/
-
-# IDE / OS
-.vscode/
-.idea/
+# macOS
 .DS_Store
-Thumbs.db
+*.pem
 
-# Colab-generated checkpoints
-.ipynb_checkpoints/
+# local env files
+.env*.local
 
-# Env files with secrets
-.env
+# typescript
+*.tsbuildinfo
+
+# generated native folders
+/ios
+/android
