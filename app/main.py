@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from .database import init_db
 from .routes import router
 from .vehicle_detector import VehicleDetector
 
@@ -16,6 +17,7 @@ MODEL_PATH = os.environ.get("PARK_VISION_MODEL_PATH", "yolov8n.pt")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.start_time = time.time()
+    init_db()
     app.state.detector = VehicleDetector(model_path=MODEL_PATH, device="cpu")
     yield
 

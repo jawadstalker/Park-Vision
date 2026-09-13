@@ -1,4 +1,5 @@
 import time
+from typing import List
 
 import cv2
 import numpy as np
@@ -10,12 +11,23 @@ from .calibration import (
     load_calibration,
     save_calibration,
 )
+from .database import get_history, list_cameras_with_history, save_detection
 from .gap_detector import DEFAULT_GAP_THRESHOLD_M, detect_gaps
+from .pixel_gap_detector import (
+    DEFAULT_MIN_GAP_RATIO,
+    DEFAULT_ROW_TOLERANCE_RATIO,
+    detect_pixel_gaps_multi_row,
+    refine_with_low_confidence_recheck,
+)
 from .schemas import (
     CalibrationRequest,
     CalibrationResponse,
     DetectResponse,
+    HistoryResponse,
     ParkingSpot,
+    PixelDetectResponse,
+    PixelSpot,
+    PixelVehicleDetection,
     Point,
     StatusResponse,
     VehicleDetection,
@@ -87,6 +99,16 @@ async def detect(
         for s in spots
     ]
 
+    save_detection(
+        camera_id=camera_id,
+        mode="calibrated",
+        frame_width=width,
+        frame_height=height,
+        vehicles=vehicles,
+        spots=spots,
+        processing_time_ms=round(elapsed_ms, 2),
+    )
+
     return DetectResponse(
         camera_id=camera_id,
         frame_width=width,
@@ -96,6 +118,80 @@ async def detect(
         spots=spot_responses,
         processing_time_ms=round(elapsed_ms, 2),
     )
+
+
+@router.post("/detect-pixel", response_model=PixelDetectResponse)
+async def detect_pixel(
+    request: Request,
+    image: UploadFile = File(...),
+    camera_id: str = Form(None),
+    conf: float = Form(0.35),
+    min_gap_ratio: float = Form(DEFAULT_MIN_GAP_RATIO),
+    row_tolerance_ratio: float = Form(DEFAULT_ROW_TOLERANCE_RATIO),
+    enable_recheck: bool = Form(True),
+):
+    detector = getattr(request.app.state, "detector", None)
+    if detector is None:
+        raise HTTPException(status_code=503, detail="Model not loaded.")
+
+    image_bytes = await image.read()
+    if not image_bytes:
+        raise HTTPException(status_code=422, detail="Uploaded image is empty.")
+
+    image_bgr = decode_image(image_bytes)
+    height, width = image_bgr.shape[:2]
+
+    start_time = time.perf_counter()
+    vehicles = detector.detect(image_bgr, conf=conf)
+    if enable_recheck and len(vehicles) >= 2:
+        vehicles = refine_with_low_confidence_recheck(detector, image_bgr, vehicles)
+    slots = detect_pixel_gaps_multi_row(
+        vehicles,
+        min_gap_ratio=min_gap_ratio,
+        row_tolerance_ratio=row_tolerance_ratio,
+        frame_width=width,
+    )
+    elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+
+    vehicle_responses = [
+        PixelVehicleDetection(id=i + 1, bbox=v["bbox"], confidence=round(v["confidence"], 4))
+        for i, v in enumerate(vehicles)
+    ]
+    spot_responses = [
+        PixelSpot(id=s["id"], status=s["status"], bbox=s["bbox"]) for s in slots
+    ]
+
+    if camera_id:
+        save_detection(
+            camera_id=camera_id,
+            mode="pixel",
+            frame_width=width,
+            frame_height=height,
+            vehicles=vehicles,
+            spots=slots,
+            processing_time_ms=round(elapsed_ms, 2),
+        )
+
+    return PixelDetectResponse(
+        camera_id=camera_id,
+        frame_width=width,
+        frame_height=height,
+        recheck_enabled=enable_recheck,
+        vehicles=vehicle_responses,
+        spots=spot_responses,
+        processing_time_ms=round(elapsed_ms, 2),
+    )
+
+
+@router.get("/history/{camera_id}", response_model=HistoryResponse)
+async def history(camera_id: str, limit: int = 50):
+    records = get_history(camera_id, limit=limit)
+    return HistoryResponse(camera_id=camera_id, records=records)
+
+
+@router.get("/history", response_model=List[str])
+async def history_cameras():
+    return list_cameras_with_history()
 
 
 @router.post("/calibrate", response_model=CalibrationResponse)

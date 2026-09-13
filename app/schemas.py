@@ -1,4 +1,4 @@
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 
@@ -31,6 +31,48 @@ class DetectResponse(BaseModel):
     vehicles: List[VehicleDetection]
     spots: List[ParkingSpot]
     processing_time_ms: float
+
+
+class PixelVehicleDetection(BaseModel):
+    id: int
+    bbox: List[float] = Field(..., min_length=4, max_length=4)
+    confidence: float
+
+
+class PixelSpot(BaseModel):
+    id: int
+    status: Literal["occupied", "empty"]
+    bbox: List[float] = Field(..., min_length=4, max_length=4)
+
+
+class PixelDetectResponse(BaseModel):
+    camera_id: Optional[str] = None
+    frame_width: int
+    frame_height: int
+    recheck_enabled: bool
+    vehicles: List[PixelVehicleDetection]
+    spots: List[PixelSpot]
+    processing_time_ms: float
+
+
+class HistoryRecord(BaseModel):
+    id: int
+    camera_id: str
+    mode: str
+    timestamp: str
+    frame_width: int
+    frame_height: int
+    vehicle_count: int
+    occupied_count: int
+    empty_count: int
+    processing_time_ms: float
+    vehicles: List[Dict[str, Any]]
+    spots: List[Dict[str, Any]]
+
+
+class HistoryResponse(BaseModel):
+    camera_id: str
+    records: List[HistoryRecord]
 
 
 class CalibrationPoint(BaseModel):
