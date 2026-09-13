@@ -1,5 +1,5 @@
 # Park-Vision — Smart On-Street Parking Detection
-# Park-Vision Mobile (Expo)
+
 
 A system that analyzes fixed street-camera footage to automatically detect
 whether roadside parking spots are occupied or empty. Unlike most similar
