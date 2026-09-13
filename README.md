@@ -161,6 +161,7 @@ pipeline end to end on Google Colab.
 <p align="center">
   <img src="./sample/sample.png" alt="NeuroLia Logo" width="300"/>
 </p>
+
 ## Tests
 
 ```bash
