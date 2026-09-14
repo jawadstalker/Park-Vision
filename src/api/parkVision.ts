@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+
 // Point this at your FastAPI backend. On a physical phone/simulator, "localhost"
 // refers to the device itself, not your computer — use your computer's LAN IP
 // (e.g. "http://192.168.1.20:8000") when testing on a real device or the
@@ -33,12 +35,22 @@ export async function detectPixel(
 ): Promise<PixelDetectResponse> {
   const formData = new FormData();
 
-  // React Native's fetch accepts this object shape for file uploads.
-  formData.append('image', {
-    uri: imageUri,
-    name: 'photo.jpg',
-    type: 'image/jpeg',
-  } as unknown as Blob);
+  if (Platform.OS === 'web') {
+    // On web, imageUri is a blob:/data: URL from the browser file picker.
+    // fetch's FormData needs a real Blob/File here -- the RN {uri,name,type}
+    // shape below is silently ignored by browsers, which is why nothing
+    // happened before.
+    const fileResponse = await fetch(imageUri);
+    const blob = await fileResponse.blob();
+    formData.append('image', blob, 'photo.jpg');
+  } else {
+    // React Native's fetch accepts this object shape for file uploads.
+    formData.append('image', {
+      uri: imageUri,
+      name: 'photo.jpg',
+      type: 'image/jpeg',
+    } as unknown as Blob);
+  }
 
   if (options?.cameraId) {
     formData.append('camera_id', options.cameraId);
@@ -49,9 +61,10 @@ export async function detectPixel(
   const response = await fetch(`${API_BASE_URL}/detect-pixel`, {
     method: 'POST',
     body: formData,
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
+    // No Content-Type header here on purpose: fetch sets
+    // "multipart/form-data; boundary=..." automatically when given a
+    // FormData body. Setting it manually (as before) omits the boundary
+    // and the backend can't parse the request at all.
   });
 
   if (!response.ok) {

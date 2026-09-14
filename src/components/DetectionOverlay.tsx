@@ -38,8 +38,10 @@ export default function DetectionOverlay({ imageUri, result }: Props) {
                 width={(x2 - x1) * scaleX}
                 height={(y2 - y1) * scaleY}
                 stroke={color}
-                strokeWidth={2}
-                fill="none"
+                strokeWidth={3}
+                rx={6}
+                fill={color}
+                fillOpacity={0.12}
               />
             );
           })}
@@ -52,7 +54,9 @@ export default function DetectionOverlay({ imageUri, result }: Props) {
 const styles = StyleSheet.create({
   container: {
     width: '100%',
-    backgroundColor: '#111',
+    backgroundColor: '#0f172a',
+    borderRadius: 14,
+    overflow: 'hidden',
   },
   image: {
     width: '100%',
