@@ -6,6 +6,7 @@ import numpy as np
 import streamlit as st
 
 from app.calibration import list_calibrated_cameras, load_calibration
+from app.database import init_db
 from app.gap_detector import DEFAULT_GAP_THRESHOLD_M, detect_gaps
 from app.pixel_gap_detector import (
     DEFAULT_MIN_GAP_RATIO,
@@ -15,6 +16,8 @@ from app.pixel_gap_detector import (
 from app.tracker import Sort
 from app.vehicle_detector import VehicleDetector
 from app.visualization import draw_pixel_spots, draw_spot_strip, draw_vehicles
+
+init_db()
 
 st.set_page_config(page_title="Smart Parking Dashboard", layout="wide")
 st.title("Smart Parking Dashboard")

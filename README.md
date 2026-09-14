@@ -79,6 +79,7 @@ pip install -r requirements.txt
 
 ```bash
 streamlit run calibrate_tool.py
+runs/street_parking/weights/best.pt
 ```
 Upload a reference image from the camera, click 4 points and enter their
 real-world coordinates in meters, check the bird's-eye preview, and save.

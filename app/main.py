@@ -3,6 +3,7 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -20,6 +21,14 @@ configure_logging()
 # pretrained model if the env var isn't set.
 MODEL_PATH = os.environ.get("PARK_VISION_MODEL_PATH", "yolov8n.pt")
 
+# Comma-separated list of allowed origins, e.g.
+# "https://dashboard.example.com,https://admin.example.com". Defaults to "*"
+# (any origin) for local/dev use -- set this explicitly in any real
+# deployment, since "*" combined with credentials is rejected by browsers
+# anyway and is not something you want open-ended in production.
+CORS_ALLOW_ORIGINS = os.environ.get("PARK_VISION_CORS_ORIGINS", "*")
+_origins = [o.strip() for o in CORS_ALLOW_ORIGINS.split(",") if o.strip()]
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -32,6 +41,15 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Smart Parking Gap Detection API", version="0.1.0", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_origins,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(router)
 # Versioned alias: existing clients keep using unprefixed paths, new
 # integrations should use /v1/... so future breaking changes don't affect them.

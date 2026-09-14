@@ -27,9 +27,11 @@ import numpy as np
 from celery import Celery
 
 from .calibration import load_calibration
-from .database import save_detection
+from .database import init_db, save_detection
 from .gap_detector import DEFAULT_GAP_THRESHOLD_M, detect_gaps
 from .vehicle_detector import VehicleDetector
+
+init_db()
 
 REDIS_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
 RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", REDIS_URL)

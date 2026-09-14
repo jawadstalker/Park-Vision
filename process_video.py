@@ -2,11 +2,14 @@ import argparse
 import json
 
 from app.calibration import load_calibration
+from app.database import init_db
 from app.vehicle_detector import VehicleDetector
 from app.video_processor import process_video
 
 
 def main():
+    init_db()
+
     parser = argparse.ArgumentParser(
         description="Run vehicle detection, tracking, and gap detection on a recorded street video."
     )

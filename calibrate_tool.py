@@ -4,6 +4,9 @@ import streamlit as st
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 from app.calibration import compute_homography, load_calibration, save_calibration
+from app.database import init_db
+
+init_db()
 
 st.set_page_config(page_title="Camera Calibration Tool", layout="wide")
 st.title("Camera Calibration Tool")
