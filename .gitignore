@@ -9,7 +9,8 @@ raw_labels/
 dist/
 web-build/
 expo-env.d.ts
-
+dataset/
+assets/
 # Native
 .kotlin/
 *.orig.*
