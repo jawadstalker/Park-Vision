@@ -11,6 +11,8 @@ web-build/
 expo-env.d.ts
 dataset/
 assets/
+runs/
+roadside_parking_raw/
 # Native
 .kotlin/
 *.orig.*
