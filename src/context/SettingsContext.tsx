@@ -1,3 +1,4 @@
+
 import React from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -35,34 +36,88 @@ interface SettingsContextValue {
   loaded: boolean;
 }
 
-const SettingsContext = React.createContext<SettingsContextValue | undefined>(undefined);
+const SettingsContext = React.createContext<
+  SettingsContextValue | undefined
+>(undefined);
 
-export function SettingsProvider({ children }: { children: React.ReactNode }) {
-  const [settings, setSettings] = React.useState<Settings>(DEFAULT_SETTINGS);
-  const [loaded, setLoaded] = React.useState(false);
+export function SettingsProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const [settings, setSettings] =
+    React.useState<Settings>(DEFAULT_SETTINGS);
+
+  const [loaded, setLoaded] = React.useState<boolean>(false);
 
   React.useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY)
-      .then((stored) => {
+    const loadSettings = async (): Promise<void> => {
+      try {
+        const stored: string | null =
+          await AsyncStorage.getItem(STORAGE_KEY);
+
         if (stored) {
-          setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(stored) });
+          try {
+            const parsed: Partial<Settings> = JSON.parse(stored);
+
+            setSettings({
+              ...DEFAULT_SETTINGS,
+              ...parsed,
+            });
+          } catch (parseError) {
+            console.warn(
+              'Failed to parse saved Park-Vision settings:',
+              parseError
+            );
+
+            // Keep default settings if stored data is invalid.
+            setSettings(DEFAULT_SETTINGS);
+          }
         }
-      })
-      .finally(() => setLoaded(true));
+      } catch (storageError) {
+        console.warn(
+          'Failed to load Park-Vision settings:',
+          storageError
+        );
+      } finally {
+        setLoaded(true);
+      }
+    };
+
+    void loadSettings();
   }, []);
 
-  const updateSettings = (partial: Partial<Settings>) => {
-    setSettings((prev) => {
-      const next = { ...prev, ...partial };
-      AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {
-        // Best-effort persistence; in-memory state still updates either way.
+  const updateSettings = (
+    partial: Partial<Settings>
+  ): void => {
+    setSettings((prev: Settings) => {
+      const next: Settings = {
+        ...prev,
+        ...partial,
+      };
+
+      AsyncStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify(next)
+      ).catch((error: unknown) => {
+        console.warn(
+          'Failed to save Park-Vision settings:',
+          error
+        );
       });
+
       return next;
     });
   };
 
   return (
-    <SettingsContext.Provider value={{ settings, updateSettings, loaded }}>
+    <SettingsContext.Provider
+      value={{
+        settings,
+        updateSettings,
+        loaded,
+      }}
+    >
       {children}
     </SettingsContext.Provider>
   );
@@ -70,8 +125,12 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
 export function useSettings(): SettingsContextValue {
   const context = React.useContext(SettingsContext);
+
   if (!context) {
-    throw new Error('useSettings must be used within a SettingsProvider');
+    throw new Error(
+      'useSettings must be used within a SettingsProvider'
+    );
   }
+
   return context;
 }
