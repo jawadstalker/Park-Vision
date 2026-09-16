@@ -3,6 +3,7 @@
 # dependencies
 node_modules/
 raw_frames/
+raw_labels/
 # Expo
 .expo/
 dist/
