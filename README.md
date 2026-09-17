@@ -211,3 +211,4 @@ this is my first official project. wish me luck!
 - Enable CORS on the FastAPI backend.
 - Add a settings screen to configure `API_BASE_URL` and `camera_id` from within the app.
 - Add a history screen backed by `GET /history/{camera_id}`.
+this proejct is not done yet.
